@@ -2,21 +2,21 @@
     "1": {
         "id": 1,
         "name": "Зимний пейзаж",
-        "author": "Иван Айвазовский",
-        "collection": "Живопись XIX века",
+        "author_id": 1,
+        "collection_id": 1,
+        "condition_id": 2,
         "year": 1887,
         "price": 2500000.0,
-        "condition": "хорошее",
         "is_available": true
     },
     "2": {
         "id": 2,
         "name": "тест",
-        "author": "тест",
-        "collection": "тест",
-        "year": 1899,
-        "price": 1000000.0,
-        "condition": "хорошее",
+        "author_id": 2,
+        "collection_id": 2,
+        "condition_id": 1,
+        "year": 1949,
+        "price": 100000.0,
         "is_available": true
     }
 }

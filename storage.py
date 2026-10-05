@@ -3,7 +3,7 @@ import os
 from typing import Dict
 
 
-def load_exhibits(filename: str) -> Dict[int, dict]:
+def load_json(filename: str) -> Dict[int, dict]:
     if not os.path.exists(filename):
         return {}
     try:
@@ -11,10 +11,10 @@ def load_exhibits(filename: str) -> Dict[int, dict]:
             data = json.load(f)
             return {int(k): v for k, v in data.items()}
     except (json.JSONDecodeError, ValueError):
-        print(f"Ошибка: файл {filename} повреждён. Будет создан новый.")
         return {}
 
 
-def save_exhibits(filename: str, exhibits: Dict[int, dict]) -> None:
+def save_json(filename: str, data: Dict[int, dict]) -> None:
+    os.makedirs(os.path.dirname(filename) or ".", exist_ok=True)
     with open(filename, "w", encoding="utf-8") as f:
-        json.dump(exhibits, f, ensure_ascii=False, indent=4)
+        json.dump(data, f, ensure_ascii=False, indent=4)
