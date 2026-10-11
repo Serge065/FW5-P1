@@ -1,73 +1,88 @@
-import os, json
-from typing import Dict, List
-from models import Author, Collection, Condition, Exhibit
-from models.authors import add_author, get_author_by_id
-from models.collections import add_collection
-from models.conditions import DEFAULT_CONDITIONS, add_condition
-from models.exhibits import add_exhibit
+from typing import Dict
+from db import execute
+from models.authors import Author
+from models.collections import Collection
+from models.conditions import Condition, DEFAULT_CONDITIONS
+from models.exhibits import Exhibit
 
-def _load_raw_json(filename: str):
-    if not os.path.exists(filename):
-        return {}
-    try:
-        with open(filename, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return {int(k): v for k, v in data.items()}
-    except (json.JSONDecodeError, ValueError):
-        return {}
+def load_authors() -> Dict[int, Author]:
+    rows = execute("SELECT id, name, lastname FROM authors ORDER BY id", fetch="all")
+    return {r["id"]: Author.from_data(r) for r in rows}
 
-def _save_raw_json(filename: str, data: Dict[int, dict]):
-    os.makedirs(os.path.dirname(filename) or ".", exist_ok=True)
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+def save_authors(authors: Dict[int, Author]) -> None:
+    for a in authors.values():
+        execute("""
+            INSERT INTO authors (id, name, lastname)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, lastname = EXCLUDED.lastname
+            """,
+            (a.id, a.name, a.lastname),
+        )
 
-def load_authors(filename: str):
-    raw = _load_raw_json(filename)
-    authors: Dict[int, Author] = {}
-    for key, data in raw.items():
-        author = Author.from_data(data)
-        authors[author.id] = author
-    return authors
+def insert_author(a: Author) -> int:
+    row = execute(
+        "INSERT INTO authors (name, lastname) VALUES (%s, %s) RETURNING id",
+        (a.name, a.lastname),
+        fetch="one",
+    )
+    return row["id"]
 
-def save_authors(filename: str, authors: Dict[int, Author]):
-    data = {str(k): v.to_data() for k, v in authors.items()}
-    _save_raw_json(filename, data)
+def load_collections() -> Dict[int, Collection]:
+    rows = execute(
+        "SELECT id, name, description FROM collections ORDER BY id",
+        fetch="all",
+    )
+    return {r["id"]: Collection.from_data(r) for r in rows}
 
-def load_collections(filename: str):
-    raw = _load_raw_json(filename)
-    collections: Dict[int, Collection] = {}
-    for key, data in raw.items():
-        coll = Collection.from_data(data)
-        collections[coll.id] = coll
-    return collections
+def insert_collection(c: Collection) -> int:
+    row = execute(
+        "INSERT INTO collections (name, description) VALUES (%s, %s) RETURNING id",
+        (c.name, c.description),
+        fetch="one",
+    )
+    return row["id"]
 
-def save_collections(filename: str, collections: Dict[int, Collection]):
-    data = {str(k): v.to_data() for k, v in collections.items()}
-    _save_raw_json(filename, data)
-
-def load_conditions(filename: str):
-    raw = _load_raw_json(filename)
-    if not raw:
+def load_conditions() -> Dict[int, Condition]:
+    rows = execute("""
+        SELECT id, code, label, needs_restoration, needs_check
+        FROM conditions ORDER BY id
+        """,
+        fetch="all",
+    )
+    if not rows:
         return dict(DEFAULT_CONDITIONS)
-    conditions: Dict[int, Condition] = {}
-    for key, data in raw.items():
-        cond = Condition.from_data(data)
-        conditions[cond.id] = cond
-    return conditions
+    return {r["id"]: Condition.from_data(r) for r in rows}
 
-def save_conditions(filename: str, conditions: Dict[int, Condition]):
-    data = {str(k): v.to_data() for k, v in conditions.items()}
-    _save_raw_json(filename, data)
+def load_exhibits(authors: Dict[int, Author], collections: Dict[int, Collection], conditions: Dict[int, Condition]) -> Dict[int, Exhibit]:
+    rows = execute("""
+        SELECT id, name, author_id, collection_id, condition_id, year, price, is_available
+        FROM exhibits ORDER BY id
+        """,
+        fetch="all",
+    )
+    result: Dict[int, Exhibit] = {}
+    for r in rows:
+        ex = Exhibit.from_data(r, authors, collections, conditions)
+        if ex is not None:
+            result[ex.id] = ex
+    return result
 
-def load_exhibits(filename: str, authors: Dict[int, Author], collections: Dict[int, Collection], conditions: Dict[int, Condition]):
-    raw = _load_raw_json(filename)
-    exhibits: Dict[int, Exhibit] = {}
-    for key, data in raw.items():
-        exhibit = Exhibit.from_data(data, authors, collections, conditions)
-        if exhibit is not None:
-            exhibits[exhibit.id] = exhibit
-    return exhibits
 
-def save_exhibits(filename: str, exhibits: Dict[int, Exhibit]):
-    data = {str(k): v.to_data() for k, v in exhibits.items()}
-    _save_raw_json(filename, data)
+def insert_exhibit(ex: Exhibit) -> int:
+    row = execute("""
+        INSERT INTO exhibits(name, author_id, collection_id, condition_id, year, price, is_available)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            ex.name,
+            ex.author.id,
+            ex.collection.id,
+            ex.condition.id,
+            ex.year,
+            ex.price,
+            ex.is_available,
+        ),
+        fetch="one",
+    )
+    return row["id"]

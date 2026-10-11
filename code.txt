@@ -1,0 +1,950 @@
+./\db.py
+
+import os, psycopg
+from contextlib import contextmanager
+from psycopg.rows import dict_row
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DB_CONFIG = {
+    "host": os.getenv("POSTGRES_HOST", "localhost"),
+    "port": int(os.getenv("POSTGRES_PORT", 6543)),
+    "dbname": os.getenv("POSTGRES_DB", "museum_db"),
+    "user": os.getenv("POSTGRES_USER", "museum"),
+    "password": os.getenv("POSTGRES_PASSWORD", "123456789")
+}
+
+@contextmanager
+def get_connection():
+    conn = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+def execute(query: str, params: tuple = (), fetch: str | None = None):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            if fetch == "one":
+                return cur.fetchone()
+            if fetch == "all":
+                return cur.fetchall()
+            return None
+
+./\docker-compose.yml
+
+services:
+  db:
+    image: postgres:16
+    container_name: museum-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+
+./\main.py
+
+from typing import Dict
+
+from models.authors import Author, create_author, find_authors_by_query, print_author_info
+from models.collections import Collection, create_collection, find_collection_by_name
+from models.conditions import Condition, DEFAULT_CONDITIONS, get_condition_by_code
+from models.exhibits import Exhibit, create_exhibit, find_exhibits_by_author, filter_exhibits_by_condition, filter_exhibits_by_collection, sort_exhibits_by_price, get_total_price, print_exhibit_info, print_all_exhibits
+from storage import load_authors, load_collections, load_conditions, load_exhibits, insert_author, insert_collection, insert_exhibit
+from utils import input_float, input_int, input_str
+
+def pick_author(authors: Dict[int, Author]) -> Author:
+    query = input_str("Введите имя/фамилию автора: ")
+    found = find_authors_by_query(authors, query)
+
+    if not found:
+        print("Автор не найден. Создаём нового.")
+        name = input_str("Имя: ")
+        lastname = input_str("Фамилия: ")
+        author = create_author(name, lastname)
+        author.id = insert_author(author)
+        authors[author.id] = author
+        return author
+
+    if len(found) == 1:
+        return found[0]
+
+    for a in found:
+        print_author_info(a)
+    author_id = input_int("Введите ID автора: ")
+    return authors[author_id]
+
+def pick_collection(collections: Dict[int, Collection]) -> Collection:
+    name = input_str("Название коллекции: ")
+    coll = find_collection_by_name(collections, name)
+    if coll:
+        return coll
+
+    description = input_str("Описание (можно пусто): ")
+    coll = create_collection(name, description)
+    coll.id = insert_collection(coll)
+    collections[coll.id] = coll
+    return coll
+
+def pick_condition(conditions: Dict[int, Condition]) -> Condition:
+    code = input_str("Состояние (отличное/хорошее/удовлетворительное/плохое): ")
+    cond = get_condition_by_code(conditions, code)
+    if not cond:
+        print("Неизвестное состояние, используем 'хорошее'.")
+        cond = get_condition_by_code(conditions, "хорошее")
+    return cond
+
+def show_menu() -> None:
+    print("\n=== Музейный каталог ===")
+    print("1. Показать все экспонаты")
+    print("2. Добавить экспонат")
+    print("3. Найти по автору")
+    print("4. Фильтр по состоянию")
+    print("5. Фильтр по коллекции")
+    print("6. Сортировка по стоимости")
+    print("7. Общая стоимость коллекции")
+    print("0. Выход")
+
+
+def create_new_exhibit(exhibits: Dict[int, Exhibit], authors: Dict[int, Author], collections: Dict[int, Collection], conditions: Dict[int, Condition]) -> None:
+    print("--- Добавление нового экспоната ---")
+    name = input_str("Название: ")
+    author = pick_author(authors)
+    collection = pick_collection(collections)
+    condition = pick_condition(conditions)
+    year = input_int("Год создания: ")
+    price = input_float("Стоимость: ")
+    is_available = input_str("Доступен для выставки? (да/нет): ").lower() == "да"
+
+    exhibit = create_exhibit(
+        name=name,
+        author=author,
+        collection=collection,
+        condition=condition,
+        year=year,
+        price=price,
+        is_available=is_available,
+    )
+    exhibit.id = insert_exhibit(exhibit)
+    exhibits[exhibit.id] = exhibit
+    print("Экспонат добавлен!")
+
+def main() -> None:
+    authors     = load_authors()
+    collections = load_collections()
+    conditions  = load_conditions() or dict(DEFAULT_CONDITIONS)
+    exhibits    = load_exhibits(authors, collections, conditions)
+
+    print(f"Загружено экспонатов: {len(exhibits)}")
+
+    while True:
+        show_menu()
+        choice = input("Выберите действие: ").strip()
+
+        if choice == "1":
+            print_all_exhibits(exhibits)
+
+        elif choice == "2":
+            create_new_exhibit(exhibits, authors, collections, conditions)
+
+        elif choice == "3":
+            query = input_str("Введите имя автора (или часть): ")
+            results = find_exhibits_by_author(exhibits, authors, query)
+            for ex in results:
+                print_exhibit_info(ex)
+            if not results:
+                print("Ничего не найдено.")
+
+        elif choice == "4":
+            code = input_str("Введите состояние: ")
+            cond = get_condition_by_code(conditions, code)
+            if not cond:
+                print("Нет такого состояния.")
+                continue
+            results = filter_exhibits_by_condition(exhibits, cond.id)
+            for ex in results:
+                print_exhibit_info(ex)
+            if not results:
+                print("Нет экспонатов с таким состоянием.")
+
+        elif choice == "5":
+            name = input_str("Название коллекции: ")
+            coll = find_collection_by_name(collections, name)
+            if not coll:
+                print("Коллекция не найдена.")
+                continue
+            results = filter_exhibits_by_collection(exhibits, coll.id)
+            for ex in results:
+                print_exhibit_info(ex)
+            if not results:
+                print("В коллекции нет экспонатов.")
+
+        elif choice == "6":
+            for ex in sort_exhibits_by_price(exhibits):
+                print_exhibit_info(ex)
+
+        elif choice == "7":
+            total = get_total_price(exhibits)
+            print(f"Общая стоимость: {total:.2f} руб.")
+
+        elif choice == "0":
+            break
+
+        else:
+            print("Неверный ввод.")
+
+if __name__ == "__main__":
+    main()
+
+./\requirements.txt
+
+psycopg[binary]>=3.2
+python-dotenv>=1.0
+pytest>=8.0
+flake8>=7.0
+
+./\storage.py
+
+from typing import Dict
+from db import execute
+from models.authors import Author
+from models.collections import Collection
+from models.conditions import Condition, DEFAULT_CONDITIONS
+from models.exhibits import Exhibit
+
+def load_authors() -> Dict[int, Author]:
+    rows = execute("SELECT id, name, lastname FROM authors ORDER BY id", fetch="all")
+    return {r["id"]: Author.from_data(r) for r in rows}
+
+def save_authors(authors: Dict[int, Author]) -> None:
+    for a in authors.values():
+        execute("""
+            INSERT INTO authors (id, name, lastname)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, lastname = EXCLUDED.lastname
+            """,
+            (a.id, a.name, a.lastname),
+        )
+
+def insert_author(a: Author) -> int:
+    row = execute(
+        "INSERT INTO authors (name, lastname) VALUES (%s, %s) RETURNING id",
+        (a.name, a.lastname),
+        fetch="one",
+    )
+    return row["id"]
+
+def load_collections() -> Dict[int, Collection]:
+    rows = execute(
+        "SELECT id, name, description FROM collections ORDER BY id",
+        fetch="all",
+    )
+    return {r["id"]: Collection.from_data(r) for r in rows}
+
+def insert_collection(c: Collection) -> int:
+    row = execute(
+        "INSERT INTO collections (name, description) VALUES (%s, %s) RETURNING id",
+        (c.name, c.description),
+        fetch="one",
+    )
+    return row["id"]
+
+def load_conditions() -> Dict[int, Condition]:
+    rows = execute("""
+        SELECT id, code, label, needs_restoration, needs_check
+        FROM conditions ORDER BY id
+        """,
+        fetch="all",
+    )
+    if not rows:
+        return dict(DEFAULT_CONDITIONS)
+    return {r["id"]: Condition.from_data(r) for r in rows}
+
+def load_exhibits(authors: Dict[int, Author], collections: Dict[int, Collection], conditions: Dict[int, Condition]) -> Dict[int, Exhibit]:
+    rows = execute("""
+        SELECT id, name, author_id, collection_id, condition_id, year, price, is_available
+        FROM exhibits ORDER BY id
+        """,
+        fetch="all",
+    )
+    result: Dict[int, Exhibit] = {}
+    for r in rows:
+        ex = Exhibit.from_data(r, authors, collections, conditions)
+        if ex is not None:
+            result[ex.id] = ex
+    return result
+
+
+def insert_exhibit(ex: Exhibit) -> int:
+    row = execute("""
+        INSERT INTO exhibits(name, author_id, collection_id, condition_id, year, price, is_available)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            ex.name,
+            ex.author.id,
+            ex.collection.id,
+            ex.condition.id,
+            ex.year,
+            ex.price,
+            ex.is_available,
+        ),
+        fetch="one",
+    )
+    return row["id"]
+
+./\utils.py
+
+def input_int(prompt: str):
+    while True:
+        try:
+            return int(input(prompt))
+        except ValueError:
+            print("Ошибка: введите целое число.")
+
+def input_float(prompt: str):
+    while True:
+        try:
+            return float(input(prompt))
+        except ValueError:
+            print("Ошибка: введите число.")
+
+def input_str(prompt: str):
+    return input(prompt).strip()
+
+./\data\authors.json
+
+{
+    "1": {
+        "id": 1,
+        "name": "Иван",
+        "lastname": "Айвазовский"
+    },
+    "2": {
+        "id": 2,
+        "name": "Тест",
+        "lastname": "Тестов"
+    }
+}
+
+./\data\collections.json
+
+{
+    "1": {
+        "id": 1,
+        "name": "Живопись XIX века",
+        "description": "Полотна русских художников XIX века"
+    },
+    "2": {
+        "id": 2,
+        "name": "тест",
+        "description": ""
+    }
+}
+
+./\data\conditions.json
+
+{
+    "1": {"id": 1, "code": "отличное", "label": "Отличное", "needs_restoration": false, "needs_check": false},
+    "2": {"id": 2, "code": "хорошее", "label": "Хорошее", "needs_restoration": false, "needs_check": false},
+    "3": {"id": 3, "code": "удовлетворительное", "label": "Удовлетворительное", "needs_restoration": false, "needs_check": true},
+    "4": {"id": 4, "code": "плохое", "label": "Плохое", "needs_restoration": true, "needs_check": false}
+}
+
+./\data\exhibits.json
+
+{
+    "1": {
+        "id": 1,
+        "name": "Зимний пейзаж",
+        "author_id": 1,
+        "collection_id": 1,
+        "condition_id": 2,
+        "year": 1887,
+        "price": 2500000.0,
+        "is_available": true
+    },
+    "2": {
+        "id": 2,
+        "name": "тест",
+        "author_id": 2,
+        "collection_id": 2,
+        "condition_id": 1,
+        "year": 1949,
+        "price": 100000.0,
+        "is_available": true
+    }
+}
+
+./\models\authors.py
+
+from typing import Any, Dict
+
+class Author:
+    def __init__(self, author_id: int, name: str, lastname: str):
+        self.id = author_id
+        self.name = name
+        self.lastname = lastname
+
+    def get_full_name(self) -> str:
+        return f"{self.name} {self.lastname}"
+
+    def __str__(self) -> str:
+        return self.get_full_name()
+
+    @classmethod
+    def from_data(cls, data: Dict[str, Any]):
+        return cls(
+            author_id=data["id"],
+            name=data["name"],
+            lastname=data["lastname"],
+        )
+
+    def to_data(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "lastname": self.lastname,
+        }
+
+def add_author(authors: Dict[int, Author], author_data: Author):
+    new_id = max(authors.keys(), default=0) + 1
+    author_data.id = new_id
+    authors[new_id] = author_data
+    return new_id
+
+def find_authors_by_query(authors: Dict[int, Author], query: str):
+    q = query.lower()
+    return [
+        a for a in authors.values()
+        if q in a.name.lower() or q in a.lastname.lower()
+    ]
+
+def get_author_by_id(authors: Dict[int, Author], author_id: int):
+    return authors.get(author_id)
+
+def create_author(name: str, lastname: str):
+    return Author(author_id=0, name=name, lastname=lastname)
+
+def print_author_info(author: Author) -> None:
+    print(f"--- ID: {author.id} ---")
+    print(f"Имя: {author.name}")
+    print(f"Фамилия: {author.lastname}\n")
+
+./\models\collections.py
+
+from typing import Any, Dict
+
+class Collection:
+    def __init__(self, collection_id: int, name: str, description: str = ""):
+        self.id = collection_id
+        self.name = name
+        self.description = description
+
+    def __str__(self) -> str:
+        if self.description:
+            return f"{self.name} ({self.description})"
+        return self.name
+
+    @classmethod
+    def from_data(cls, data: Dict[str, Any]):
+        return cls(
+            collection_id=data["id"],
+            name=data["name"],
+            description=data.get("description", ""),
+        )
+
+    def to_data(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+        }
+
+def add_collection(collections: Dict[int, Collection], collection_data: Collection):
+    new_id = max(collections.keys(), default=0) + 1
+    collection_data.id = new_id
+    collections[new_id] = collection_data
+    return new_id
+
+def create_collection(name: str, description: str = ""):
+    return Collection(
+        collection_id=0,
+        name=name,
+        description=description,
+    )
+
+def get_collection_name(collections: Dict[int, Collection], collection_id: int):
+    coll = collections.get(collection_id)
+    return coll.name if coll else "Неизвестная коллекция"
+
+
+def find_collection_by_name(collections: Dict[int, Collection], name: str) :
+    q = name.lower().strip()
+    for c in collections.values():
+        if c.name.lower() == q:
+            return c
+    return None
+
+def print_collection_info(collection: Collection):
+    print(f"--- ID: {collection.id} ---")
+    print(f"Название: {collection.name}")
+    if collection.description:
+        print(f"Описание: {collection.description}")
+    print()
+
+./\models\conditions.py
+
+from typing import Any, Dict, Optional
+
+class Condition:
+    def __init__(self,condition_id: int,code: str,label: str,needs_restoration: bool = False,needs_check: bool = False,) -> None:
+        self.id = condition_id
+        self.code = code
+        self.label = label
+        self.needs_restoration = needs_restoration
+        self.needs_check = needs_check
+
+    def get_status(self, is_available: bool):
+        if self.needs_restoration:
+            return "Экспонат необходимо направить на реставрацию"
+        if self.needs_check:
+            return "Экспонат требует проверки"
+        if not is_available:
+            return "Экспонат временно недоступен"
+        if self.code == "отличное":
+            return "Экспонат готов к выставке"
+        return "Экспонат можно выставлять"
+
+    def __str__(self):
+        return self.label
+
+    @classmethod
+    def from_data(cls, data: Dict[str, Any]):
+        return cls(
+            condition_id=data["id"],
+            code=data["code"],
+            label=data["label"],
+            needs_restoration=data.get("needs_restoration", False),
+            needs_check=data.get("needs_check", False),
+        )
+
+    def to_data(self):
+        return {
+            "id": self.id,
+            "code": self.code,
+            "label": self.label,
+            "needs_restoration": self.needs_restoration,
+            "needs_check": self.needs_check,
+        }
+
+DEFAULT_CONDITIONS = {
+    1: Condition(1, "отличное", "Отличное", False, False),
+    2: Condition(2, "хорошее", "Хорошее", False, False),
+    3: Condition(3, "удовлетворительное", "Удовлетворительное", False, True),
+    4: Condition(4, "плохое", "Плохое", True, False),
+}
+
+def create_condition(code: str,label: str,needs_restoration: bool = False,needs_check: bool = False,):
+    return Condition(
+        condition_id=0,
+        code=code,
+        label=label,
+        needs_restoration=needs_restoration,
+        needs_check=needs_check,
+    )
+    
+def add_condition(conditions: Dict[int, Condition], condition_data: Condition):
+    new_id = max(conditions.keys(), default=0) + 1
+    condition_data.id = new_id
+    conditions[new_id] = condition_data
+    return new_id
+
+def get_condition_by_code(conditions: Dict[int, Condition], code: str):
+    q = code.lower().strip()
+    for c in conditions.values():
+        if c.code.lower() == q:
+            return c
+    return None
+def get_condition_by_id(conditions: Dict[int, Condition], condition_id: int):
+    return conditions.get(condition_id)
+
+def print_condition_info(condition: Condition):
+    print(f"--- ID: {condition.id} ---")
+    print(f"Код: {condition.code}")
+    print(f"Название: {condition.label}")
+    print(f"Требует реставрации: {condition.needs_restoration}")
+    print(f"Требует проверки: {condition.needs_check}\n")
+
+./\models\exhibits.py
+
+from datetime import date
+from typing import Any, Dict, List
+from .authors import Author
+from .collections import Collection
+from .conditions import Condition
+
+class Exhibit:
+    def __init__(self, exhibit_id: int, name: str, author: Author, collection: Collection, condition: Condition, year: int, price: float, is_available: bool):
+        self.id = exhibit_id
+        self.name = name
+        self.author = author
+        self.collection = collection
+        self.condition = condition
+        self.year = year
+        self.price = price
+        self.is_available = is_available
+
+    def calculate_age(self):
+        return date.today().year - self.year
+
+    def get_status(self):
+        return self.condition.get_status(self.is_available)
+
+    def __str__(self):
+        author_name = (self.author.get_full_name() if self.author else "Неизвестен")
+        return (
+            f"{self.name} — {author_name}, "
+            f"{self.year} г., {self.price} руб."
+        )
+
+    @classmethod
+    def from_data(cls, data: Dict[str, Any], authors: Dict[int, Author], collections: Dict[int, Collection], conditions: Dict[int, Condition]):
+        author = authors.get(data["author_id"])
+        collection = collections.get(data["collection_id"])
+        condition = conditions.get(data["condition_id"])
+
+        if author is None or collection is None or condition is None:
+            return None
+
+        return cls(
+            exhibit_id=data["id"],
+            name=data["name"],
+            author=author,
+            collection=collection,
+            condition=condition,
+            year=data["year"],
+            price=data["price"],
+            is_available=data["is_available"],
+        )
+
+    def to_data(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "author_id": self.author.id if self.author else None,
+            "collection_id": (self.collection.id if self.collection else None),
+            "condition_id": (self.condition.id if self.condition else None),
+            "year": self.year,
+            "price": self.price,
+            "is_available": self.is_available,
+        }
+
+def create_exhibit(name: str, author: Author, collection: Collection, condition: Condition, year: int, price: float, is_available: bool):
+    return Exhibit(
+        exhibit_id=0,
+        name=name,
+        author=author,
+        collection=collection,
+        condition=condition,
+        year=year,
+        price=price,
+        is_available=is_available,
+    )
+
+def add_exhibit(exhibits: Dict[int, Exhibit], exhibit_data: Exhibit):
+    new_id = max(exhibits.keys(), default=0) + 1
+    exhibit_data.id = new_id
+    exhibits[new_id] = exhibit_data
+    return new_id
+
+
+def find_exhibits_by_author(exhibits: Dict[int, Exhibit], authors: Dict[int, Author], query: str):
+    q = query.lower()
+    matched_ids = {
+        aid for aid, a in authors.items()
+        if q in a.name.lower() or q in a.lastname.lower()
+    }
+    return [
+        ex for ex in exhibits.values()
+        if ex.author and ex.author.id in matched_ids
+    ]
+
+def filter_exhibits_by_condition(exhibits: Dict[int, Exhibit], condition_id: int):
+    return [ex for ex in exhibits.values() if ex.condition and ex.condition.id == condition_id]
+
+def filter_exhibits_by_collection(exhibits: Dict[int, Exhibit], collection_id: int) -> List[Exhibit]:
+    return [ex for ex in exhibits.values() if ex.collection and ex.collection.id == collection_id]
+
+def sort_exhibits_by_price(exhibits: Dict[int, Exhibit]):
+    return sorted(exhibits.values(), key=lambda ex: ex.price)
+
+def get_total_price(exhibits: Dict[int, Exhibit]):
+    return sum(ex.price for ex in exhibits.values())
+
+def print_exhibit_info(exhibit: Exhibit):
+    author_name = (exhibit.author.get_full_name() if exhibit.author else "Неизвестен")
+    collection_name = (exhibit.collection.name if exhibit.collection else "Неизвестная коллекция")
+    condition_label = (exhibit.condition.label if exhibit.condition else "Неизвестно")
+    status = exhibit.get_status()
+    age = exhibit.calculate_age()
+
+    print(f"--- ID: {exhibit.id} ---")
+    print(f"Название: {exhibit.name}")
+    print(f"Автор: {author_name}")
+    print(f"Коллекция: {collection_name}")
+    print(f"Год создания: {exhibit.year} (возраст: {age} лет)")
+    print(f"Стоимость: {exhibit.price} руб.")
+    print(f"Состояние: {condition_label}")
+    print(f"Доступен: {'да' if exhibit.is_available else 'нет'}")
+    print(f"Статус: {status}\n")
+
+def print_all_exhibits(exhibits: Dict[int, Exhibit]):
+    if not exhibits:
+        print("Список экспонатов пуст.")
+        return
+    for ex in exhibits.values():
+        print_exhibit_info(ex)
+
+./\tests\conftest.py
+
+import os
+import psycopg
+import pytest
+from psycopg.rows import dict_row
+
+TEST_DB = os.getenv("POSTGRES_TEST_DB", "museum_test_db")
+HOST = os.getenv("POSTGRES_HOST", "localhost")
+PORT = int(os.getenv("POSTGRES_PORT", 6543))
+USER = os.getenv("POSTGRES_USER", "museum")
+PASSWORD = os.getenv("POSTGRES_PASSWORD", "123456789")
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_db():
+    admin_dsn = f"host={HOST} port={PORT} user={USER} password={PASSWORD} dbname=postgres"
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
+            cur.execute(f'CREATE DATABASE "{TEST_DB}"')
+
+    test_dsn = f"host={HOST} port={PORT} user={USER} password={PASSWORD} dbname={TEST_DB}"
+    with psycopg.connect(test_dsn) as conn:
+        with conn.cursor() as cur:
+            with open("schema.sql", encoding="utf-8") as f:
+                cur.execute(f.read())
+        conn.commit()
+
+    yield
+
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
+
+@pytest.fixture
+def db_conn():
+    dsn = f"host={HOST} port={PORT} user={USER} password={PASSWORD} dbname={TEST_DB}"
+    conn = psycopg.connect(dsn, row_factory=dict_row)
+    try:
+        yield conn
+    finally:
+        conn.rollback()
+        conn.close()
+
+@pytest.fixture(autouse=True)
+def clean_tables():
+    dsn = f"host={HOST} port={PORT} user={USER} password={PASSWORD} dbname={TEST_DB}"
+    conn = psycopg.connect(dsn, autocommit=True)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("TRUNCATE exhibits, authors, collections RESTART IDENTITY CASCADE")
+            cur.execute("DELETE FROM conditions WHERE id > 4")
+    finally:
+        conn.close()
+    yield
+
+./\tests\test_authors.py
+
+from models.authors import Author, create_author, find_authors_by_query
+from storage import load_authors, insert_author
+
+
+def test_insert_author_returns_id(db_conn):
+    a = create_author("Иван", "Шишкин")
+    new_id = insert_author(a)
+    assert isinstance(new_id, int)
+    assert new_id > 0
+
+
+def test_load_authors_after_insert(db_conn):
+    insert_author(create_author("Иван", "Шишкин"))
+    insert_author(create_author("Огюст", "Роден"))
+    authors = load_authors()
+    assert len(authors) == 2
+    assert any(a.lastname == "Шишкин" for a in authors.values())
+
+
+def test_find_authors_by_query_case_insensitive(db_conn):
+    insert_author(create_author("Иван", "Шишкин"))
+    authors = load_authors()
+    assert len(find_authors_by_query(authors, "шиш")) == 1
+    assert len(find_authors_by_query(authors, "ИВАН")) == 1
+    assert len(find_authors_by_query(authors, "неттакого")) == 0
+
+
+def test_author_full_name():
+    a = create_author("Иван", "Шишкин")
+    assert a.get_full_name() == "Иван Шишкин"
+
+./\tests\test_collections.py
+
+from models.collections import create_collection, find_collection_by_name
+from storage import load_collections, insert_collection
+
+
+def test_insert_and_load(db_conn):
+    insert_collection(create_collection("Живопись XIX века", "Полотна"))
+    colls = load_collections()
+    assert len(colls) == 1
+    assert list(colls.values())[0].name == "Живопись XIX века"
+
+
+def test_unique_name_violation(db_conn):
+    import psycopg
+    import pytest
+    insert_collection(create_collection("Дубликат"))
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        insert_collection(create_collection("Дубликат"))
+
+
+def test_find_collection_by_name(db_conn):
+    insert_collection(create_collection("Скульптура"))
+    colls = load_collections()
+    assert find_collection_by_name(colls, "скульптура") is not None
+    assert find_collection_by_name(colls, "  Скульптура  ") is not None
+    assert find_collection_by_name(colls, "Нет") is None
+
+./\tests\test_conditions.py
+
+from models.conditions import get_condition_by_code
+from storage import load_conditions
+
+
+def test_default_conditions_loaded(db_conn):
+    conditions = load_conditions()
+    assert len(conditions) >= 4
+    assert get_condition_by_code(conditions, "хорошее") is not None
+
+
+def test_condition_status_restoration():
+    from models.conditions import Condition
+    c = Condition(4, "плохое", "Плохое", needs_restoration=True)
+    assert "реставрацию" in c.get_status(is_available=True)
+
+
+def test_condition_status_check():
+    from models.conditions import Condition
+    c = Condition(3, "удовлетворительное", "Удовлетворительное", needs_check=True)
+    assert "проверки" in c.get_status(is_available=True)
+
+
+def test_condition_status_unavailable():
+    from models.conditions import Condition
+    c = Condition(1, "отличное", "Отличное")
+    assert "недоступен" in c.get_status(is_available=False)
+
+
+def test_condition_status_excellent():
+    from models.conditions import Condition
+    c = Condition(1, "отличное", "Отличное")
+    assert "готов" in c.get_status(is_available=True)
+
+./\tests\test_exhibits.py
+
+from models.authors import create_author
+from models.collections import create_collection
+from models.conditions import DEFAULT_CONDITIONS
+from models.exhibits import (
+    create_exhibit, find_exhibits_by_author,
+    filter_exhibits_by_condition, filter_exhibits_by_collection,
+    sort_exhibits_by_price, get_total_price,
+)
+from storage import (
+    insert_author, insert_collection, insert_exhibit,
+    load_authors, load_collections, load_conditions, load_exhibits,
+)
+
+
+def _seed(db_conn):
+    a = create_author("Иван", "Шишкин")
+    a.id = insert_author(a)
+    c = create_collection("Живопись")
+    c.id = insert_collection(c)
+    cond = DEFAULT_CONDITIONS[2]
+    ex = create_exhibit("Утро в сосновом лесу", a, c, cond, 1889, 3_500_000.0, True)
+    ex.id = insert_exhibit(ex)
+    return a, c, cond, ex
+
+
+def test_insert_and_load_exhibit(db_conn):
+    a, c, cond, ex = _seed(db_conn)
+    authors = load_authors()
+    colls = load_collections()
+    conds = load_conditions()
+    exhibits = load_exhibits(authors, colls, conds)
+    assert len(exhibits) == 1
+    assert exhibits[ex.id].name == "Утро в сосновом лесу"
+
+
+def test_price_check_constraint(db_conn):
+    import psycopg
+    import pytest
+    a = create_author("A", "B"); a.id = insert_author(a)
+    c = create_collection("C"); c.id = insert_collection(c)
+    cond = DEFAULT_CONDITIONS[1]
+    bad = create_exhibit("Bad", a, c, cond, 1900, -1.0, True)
+    with pytest.raises(psycopg.errors.CheckViolation):
+        insert_exhibit(bad)
+
+
+def test_filter_by_condition(db_conn):
+    a, c, cond, ex = _seed(db_conn)
+    authors = load_authors()
+    colls = load_collections()
+    conds = load_conditions()
+    exhibits = load_exhibits(authors, colls, conds)
+    assert len(filter_exhibits_by_condition(exhibits, cond.id)) == 1
+    assert len(filter_exhibits_by_condition(exhibits, 4)) == 0
+
+
+def test_sort_and_total(db_conn):
+    a = create_author("A", "A"); a.id = insert_author(a)
+    c = create_collection("C"); c.id = insert_collection(c)
+    cond = DEFAULT_CONDITIONS[1]
+    for name, price in [("One", 100.0), ("Two", 50.0), ("Three", 300.0)]:
+        ex = create_exhibit(name, a, c, cond, 2000, price, True)
+        ex.id = insert_exhibit(ex)
+    exhibits = load_exhibits(load_authors(), load_collections(), load_conditions())
+    sorted_ex = sort_exhibits_by_price(exhibits)
+    assert [e.price for e in sorted_ex] == [50.0, 100.0, 300.0]
+    assert get_total_price(exhibits) == 450.0
