@@ -333,70 +333,6 @@ def input_float(prompt: str):
 def input_str(prompt: str):
     return input(prompt).strip()
 
-./\data\authors.json
-
-{
-    "1": {
-        "id": 1,
-        "name": "Иван",
-        "lastname": "Айвазовский"
-    },
-    "2": {
-        "id": 2,
-        "name": "Тест",
-        "lastname": "Тестов"
-    }
-}
-
-./\data\collections.json
-
-{
-    "1": {
-        "id": 1,
-        "name": "Живопись XIX века",
-        "description": "Полотна русских художников XIX века"
-    },
-    "2": {
-        "id": 2,
-        "name": "тест",
-        "description": ""
-    }
-}
-
-./\data\conditions.json
-
-{
-    "1": {"id": 1, "code": "отличное", "label": "Отличное", "needs_restoration": false, "needs_check": false},
-    "2": {"id": 2, "code": "хорошее", "label": "Хорошее", "needs_restoration": false, "needs_check": false},
-    "3": {"id": 3, "code": "удовлетворительное", "label": "Удовлетворительное", "needs_restoration": false, "needs_check": true},
-    "4": {"id": 4, "code": "плохое", "label": "Плохое", "needs_restoration": true, "needs_check": false}
-}
-
-./\data\exhibits.json
-
-{
-    "1": {
-        "id": 1,
-        "name": "Зимний пейзаж",
-        "author_id": 1,
-        "collection_id": 1,
-        "condition_id": 2,
-        "year": 1887,
-        "price": 2500000.0,
-        "is_available": true
-    },
-    "2": {
-        "id": 2,
-        "name": "тест",
-        "author_id": 2,
-        "collection_id": 2,
-        "condition_id": 1,
-        "year": 1949,
-        "price": 100000.0,
-        "is_available": true
-    }
-}
-
 ./\models\authors.py
 
 from typing import Any, Dict
@@ -729,10 +665,11 @@ def print_all_exhibits(exhibits: Dict[int, Exhibit]):
 
 ./\tests\conftest.py
 
-import os
-import psycopg
-import pytest
+import os, psycopg, pytest
 from psycopg.rows import dict_row
+
+os.environ.setdefault("POSTGRES_TEST_DB", "museum_test_db")
+os.environ["POSTGRES_DB"] = os.environ["POSTGRES_TEST_DB"]
 
 TEST_DB = os.getenv("POSTGRES_TEST_DB", "museum_test_db")
 HOST = os.getenv("POSTGRES_HOST", "localhost")
@@ -778,7 +715,6 @@ def clean_tables():
     try:
         with conn.cursor() as cur:
             cur.execute("TRUNCATE exhibits, authors, collections RESTART IDENTITY CASCADE")
-            cur.execute("DELETE FROM conditions WHERE id > 4")
     finally:
         conn.close()
     yield
