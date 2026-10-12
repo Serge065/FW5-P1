@@ -1,0 +1,10 @@
+[flake8]
+exclude =
+    .venv,
+    __pycache__,
+    .git,
+    .idea,
+    .vscode
+    load.py
+    code.txt
+max-line-length = 88

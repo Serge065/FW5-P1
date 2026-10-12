@@ -1,0 +1,6 @@
+{
+    "1": {"id": 1, "code": "отличное", "label": "Отличное", "needs_restoration": false, "needs_check": false},
+    "2": {"id": 2, "code": "хорошее", "label": "Хорошее", "needs_restoration": false, "needs_check": false},
+    "3": {"id": 3, "code": "удовлетворительное", "label": "Удовлетворительное", "needs_restoration": false, "needs_check": true},
+    "4": {"id": 4, "code": "плохое", "label": "Плохое", "needs_restoration": true, "needs_check": false}
+}
