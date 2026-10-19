@@ -1,5 +1,4 @@
 from typing import Dict
-
 from models.authors import Author, create_author, find_authors_by_query, print_author_info
 from models.collections import Collection, create_collection, find_collection_by_name
 from models.conditions import Condition, DEFAULT_CONDITIONS, get_condition_by_code

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}
+{% if exhibit %}{{ exhibit.name }} — Музейный каталог
+{% else %}Экспонат не найден — Музейный каталог{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if exhibit %}
+<div class="card">
+    <div class="card-body">
+        <h1 class="card-title">{{ exhibit.name }}</h1>
+        <p><strong>ID:</strong> {{ exhibit.id }}</p>
+        <p><strong>Автор:</strong>
+            {% if exhibit.author %}
+                <a href="{% url 'authors:detail' exhibit.author.id %}">
+                    {{ exhibit.author.get_full_name }}
+                </a>
+            {% else %}Неизвестен{% endif %}
+        </p>
+        <p><strong>Коллекция:</strong>
+            {% if exhibit.collection %}
+                <a href="{% url 'collections:detail' exhibit.collection.id %}">
+                    {{ exhibit.collection.name }}
+                </a>
+            {% else %}Неизвестная коллекция{% endif %}
+        </p>
+        <p><strong>Год создания:</strong> {{ exhibit.year }}
+           (возраст: {{ exhibit.calculate_age }} лет)</p>
+        <p><strong>Стоимость:</strong> {{ exhibit.price }} руб.</p>
+        <p><strong>Состояние:</strong>
+            {{ exhibit.condition.label|default:"Неизвестно" }}</p>
+        <p><strong>Доступен:</strong>
+            {% if exhibit.is_available %}
+                <span class="badge bg-success">доступен</span>
+            {% else %}
+                <span class="badge bg-danger">недоступен</span>
+            {% endif %}
+        </p>
+        <p><strong>Статус:</strong> {{ exhibit.get_status }}</p>
+    </div>
+</div>
+{% else %}
+<h1 class="text-danger">Экспонат не найден</h1>
+<p>Экспонат с указанным идентификатором отсутствует.</p>
+{% endif %}
+
+<a href="{% url 'exhibits:list' %}" class="btn btn-outline-secondary mt-3">
+    ← к списку экспонатов
+</a>
+{% endblock %}

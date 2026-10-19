@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Авторы — Музейный каталог{% endblock %}
+
+{% block content %}
+<h1>Авторы</h1>
+<p>Всего авторов: {{ authors|length }}</p>
+
+{% for author in authors %}
+    {% include "authors/includes/author_card.html" %}
+{% empty %}
+    <p>Авторы не найдены.</p>
+{% endfor %}
+{% endblock %}

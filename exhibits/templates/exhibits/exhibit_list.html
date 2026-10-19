@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Экспонаты — Музейный каталог{% endblock %}
+
+{% block content %}
+<h1>Экспонаты</h1>
+<p>Всего экспонатов: {{ exhibits|length }}</p>
+
+{% for exhibit in exhibits %}
+    {% include "exhibits/includes/exhibit_card.html" %}
+{% empty %}
+    <p>Экспонаты не найдены.</p>
+{% endfor %}
+{% endblock %}

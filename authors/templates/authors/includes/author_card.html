@@ -1,0 +1,9 @@
+<article class="card author-card mb-3">
+    <div class="card-body">
+        <h2 class="card-title h5">
+            <a href="{% url 'authors:detail' author.id %}">
+                {{ author.get_full_name|default:"Без имени" }}
+            </a>
+        </h2>
+    </div>
+</article>

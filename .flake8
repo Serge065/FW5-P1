@@ -1,10 +1,12 @@
 [flake8]
 exclude =
     .venv,
+    venv,
+    museum/migrations,
     __pycache__,
     .git,
     .idea,
     .vscode
     load.py
     code.txt
-max-line-length = 88
+max-line-length = 300

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}
+{% if author %}{{ author.get_full_name }} — Музейный каталог
+{% else %}Автор не найден — Музейный каталог{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if author %}
+<div class="card">
+    <div class="card-body">
+        <h1 class="card-title">{{ author.get_full_name }}</h1>
+        <p><strong>ID:</strong> {{ author.id }}</p>
+        <p><strong>Имя:</strong> {{ author.name }}</p>
+        <p><strong>Фамилия:</strong> {{ author.lastname }}</p>
+
+        <h5 class="mt-3">Экспонаты автора:</h5>
+        {% if exhibits %}
+        <ul class="list-group">
+            {% for ex in exhibits %}
+            <li class="list-group-item">
+                <a href="{% url 'exhibits:detail' ex.id %}">{{ ex.name }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>Экспонатов нет.</p>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<h1 class="text-danger">Автор не найден</h1>
+{% endif %}
+
+<a href="{% url 'authors:list' %}" class="btn btn-outline-secondary mt-3">
+    ← к списку авторов
+</a>
+{% endblock %}

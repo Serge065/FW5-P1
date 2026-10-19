@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 class Condition:
     def __init__(self,condition_id: int,code: str,label: str,needs_restoration: bool = False,needs_check: bool = False,) -> None:

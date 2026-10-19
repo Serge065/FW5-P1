@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Коллекции — Музейный каталог{% endblock %}
+
+{% block content %}
+<h1>Коллекции</h1>
+<p>Всего коллекций: {{ collections|length }}</p>
+
+{% for collection in collections %}
+    {% include "collections/includes/collection_card.html" %}
+{% empty %}
+    <p>Коллекции не найдены.</p>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,12 @@
+<article class="card collection-card mb-3">
+    <div class="card-body">
+        <h2 class="card-title h5">
+            <a href="{% url 'collections:detail' collection.id %}">
+                {{ collection.name|default:"Без названия" }}
+            </a>
+        </h2>
+        {% if collection.description %}
+        <p class="card-text">{{ collection.description }}</p>
+        {% endif %}
+    </div>
+</article>

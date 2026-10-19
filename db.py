@@ -34,3 +34,4 @@ def execute(query: str, params: tuple = (), fetch: str | None = None):
             if fetch == "all":
                 return cur.fetchall()
             return None
+        

@@ -1,0 +1,17 @@
+<article class="card exhibit-card mb-3">
+    <div class="card-body">
+        <h2 class="card-title h5">
+            {{ exhibit.name|default:"Без названия" }}
+        </h2>
+        <p class="card-text">
+            {{ exhibit.author.get_full_name|default:"Автор неизвестен" }},
+            {{ exhibit.year }} г.
+        </p>
+        <p class="card-text">
+            Стоимость: {{ exhibit.price }} руб.
+        </p>
+        <a href="{% url 'exhibits:detail' exhibit.id %}" class="btn btn-primary btn-sm">
+            Подробнее
+        </a>
+    </div>
+</article>

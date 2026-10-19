@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}
+{% if collection %}{{ collection.name }} — Музейный каталог
+{% else %}Коллекция не найдена — Музейный каталог{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if collection %}
+<div class="card">
+    <div class="card-body">
+        <h1 class="card-title">{{ collection.name }}</h1>
+        <p><strong>ID:</strong> {{ collection.id }}</p>
+        <p><strong>Описание:</strong>
+            {{ collection.description|default:"—" }}</p>
+
+        <h5 class="mt-3">Экспонаты коллекции:</h5>
+        {% if exhibits %}
+        <ul class="list-group">
+            {% for ex in exhibits %}
+            <li class="list-group-item">
+                <a href="{% url 'exhibits:detail' ex.id %}">{{ ex.name }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>Экспонатов нет.</p>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<h1 class="text-danger">Коллекция не найдена</h1>
+{% endif %}
+
+<a href="{% url 'collections:list' %}" class="btn btn-outline-secondary mt-3">
+    ← к списку коллекций
+</a>
+{% endblock %}
