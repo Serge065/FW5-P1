@@ -53,7 +53,7 @@ services:
       - "${POSTGRES_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -648,15 +648,15 @@ app_name = "exhibits"
 urlpatterns = [
     path("", views.exhibits, name="list"),
     path("<int:exhibit_id>/", views.exhibit_detail, name="detail"),
+    path("search/", views.exhibit_search, name="search"),          # Новый маршрут
+    path("statistics/", views.exhibits_statistics, name="statistics"), # Новый маршрут
 ]
-
 
 ./\exhibits\views.py
 
 from django.shortcuts import render
-
 from storage import load_authors, load_collections, load_conditions, load_exhibits
-
+from db import execute
 
 def exhibits(request):
     authors = load_authors()
@@ -668,7 +668,6 @@ def exhibits(request):
         "exhibits": list(exhibits_dict.values()),
     }
     return render(request, "exhibits/exhibit_list.html", context)
-
 
 def exhibit_detail(request, exhibit_id):
     authors = load_authors()
@@ -685,6 +684,41 @@ def exhibit_detail(request, exhibit_id):
         context,
         status=404 if exhibit is None else 200,
     )
+    
+def exhibit_search(request):
+    query = request.GET.get("q", "").strip()
+    results = []
+    
+    if query:
+        sql = """
+            SELECT e.id, e.name, e.year, e.price, a.lastname AS author
+            FROM exhibits e
+            LEFT JOIN authors a ON e.author_id = a.id
+            WHERE e.name ILIKE %s
+            ORDER BY e.year DESC
+        """
+        results = execute(sql, (f"%{query}%",), fetch="all")
+        
+    return render(request, "exhibits/exhibit_search.html", {
+        "query": query,
+        "exhibits": results
+    })
+
+def exhibits_statistics(request):
+    sql = """
+        SELECT c.name AS collection_name, 
+               COUNT(e.id) AS exhibits_count,
+               COALESCE(SUM(e.price), 0) AS total_price
+        FROM collections c
+        LEFT JOIN exhibits e ON c.id = e.collection_id
+        GROUP BY c.id, c.name
+        ORDER BY exhibits_count DESC
+    """
+    stats = execute(sql, fetch="all")
+    
+    return render(request, "exhibits/exhibit_statistics.html", {
+        "statistics": stats
+    })
 
 ./\exhibits\templates\exhibits\exhibit_detail.html
 
@@ -757,6 +791,72 @@ def exhibit_detail(request, exhibit_id):
 {% endfor %}
 {% endblock %}
 
+./\exhibits\templates\exhibits\exhibit_search.html
+
+{% extends "base.html" %}
+
+{% block title %}Поиск экспонатов — Музейный каталог{% endblock %}
+
+{% block content %}
+<h1>Поиск экспонатов</h1>
+
+<form method="get" class="mb-4">
+    <div class="input-group">
+        <input type="text" name="q" class="form-control" placeholder="Введите название..." value="{{ query }}">
+        <button type="submit" class="btn btn-primary">Найти</button>
+    </div>
+</form>
+
+{% if query %}
+    <h2>Результаты поиска по запросу: "{{ query }}"</h2>
+    {% if exhibits %}
+        <div class="list-group">
+            {% for ex in exhibits %}
+                <a href="{% url 'exhibits:detail' ex.id %}" class="list-group-item list-group-item-action">
+                    <strong>{{ ex.name }}</strong> ({{ ex.year }} г.) — {{ ex.author|default:"Неизвестен" }} — {{ ex.price }} руб.
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>Ничего не найдено.</p>
+    {% endif %}
+{% endif %}
+{% endblock %}
+
+./\exhibits\templates\exhibits\exhibit_statistics.html
+
+{% extends "base.html" %}
+
+{% block title %}Статистика — Музейный каталог{% endblock %}
+
+{% block content %}
+<h1>Статистика по коллекциям</h1>
+
+<table class="table table-striped mt-4">
+    <thead>
+        <tr>
+            <th>Коллекция</th>
+            <th>Количество экспонатов</th>
+            <th>Общая стоимость (руб.)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in statistics %}
+        <tr>
+            <td>{{ row.collection_name }}</td>
+            <td>{{ row.exhibits_count }}</td>
+            <td>{{ row.total_price }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="3">Данные отсутствуют.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
+
+
 ./\exhibits\templates\exhibits\includes\exhibit_card.html
 
 <article class="card exhibit-card mb-3">
@@ -812,23 +912,6 @@ body {
     margin: 1rem 0 1rem 1rem;
 }
 
-.exhibit-card {
-    border-left: 4px solid #6c757d;
-    transition: transform 0.2s;
-}
-
-.exhibit-card:hover {
-    transform: translateX(4px);
-}
-
-.author-card {
-    border-left: 4px solid #0d6efd;
-}
-
-.collection-card {
-    border-left: 4px solid #198754;
-}
-
 .card-title a {
     text-decoration: none;
     color: inherit;
@@ -865,13 +948,9 @@ if (yearElement) {
 {% block content %}
 <h1 class="display-4">Музейный каталог</h1>
 <p class="lead">
-    Система учёта экспонатов музея: авторы, коллекции и состояния сохранности.
+    Сущности системы: экспонаты, авторы, коллекции и состояния сохранности.
 </p>
 
-<h5 class="mt-4">Основные разделы:</h5>
-<a href="{% url 'exhibits:list' %}" class="btn btn-primary me-2">Экспонаты</a>
-<a href="{% url 'authors:list' %}" class="btn btn-secondary me-2">Авторы</a>
-<a href="{% url 'collections:list' %}" class="btn btn-secondary">Коллекции</a>
 {% endblock %}
 
 ./\models\authors.py
@@ -1243,7 +1322,7 @@ INSTALLED_APPS = [
     "homepage",
     "exhibits",
     "authors",
-    "collections"
+    "colections"
 ]
 
 MIDDLEWARE = [
@@ -1368,18 +1447,11 @@ application = get_wsgi_application()
     <link rel="stylesheet" href="{% static 'homepage/css/style.css' %}">
 </head>
 <body>
-    <img src="{% static 'homepage/img/logo.png' %}"
-         alt="Музейный каталог" class="museum-logo">
-
     {% include "includes/navigation.html" %}
 
     <main class="container mt-3">
         {% block content %}{% endblock %}
     </main>
-
-    <footer class="container mt-4 mb-3">
-        <p>© <span id="current-year"></span> Музейный каталог</p>
-    </footer>
 
     <script src="{% static 'homepage/js/main.js' %}"></script>
 </body>
@@ -1390,6 +1462,8 @@ application = get_wsgi_application()
 <nav class="nav">
     <a class="nav-link" href="{% url 'homepage:index' %}">Главная</a>
     <a class="nav-link" href="{% url 'exhibits:list' %}">Экспонаты</a>
+    <a class="nav-link" href="{% url 'exhibits:search' %}">Поиск</a>
+    <a class="nav-link" href="{% url 'exhibits:statistics' %}">Статистика</a>
     <a class="nav-link" href="{% url 'authors:list' %}">Авторы</a>
     <a class="nav-link" href="{% url 'collections:list' %}">Коллекции</a>
 </nav>

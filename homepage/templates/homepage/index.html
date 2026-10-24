@@ -5,11 +5,7 @@
 {% block content %}
 <h1 class="display-4">Музейный каталог</h1>
 <p class="lead">
-    Система учёта экспонатов музея: авторы, коллекции и состояния сохранности.
+    Сущности системы: экспонаты, авторы, коллекции и состояния сохранности.
 </p>
 
-<h5 class="mt-4">Основные разделы:</h5>
-<a href="{% url 'exhibits:list' %}" class="btn btn-primary me-2">Экспонаты</a>
-<a href="{% url 'authors:list' %}" class="btn btn-secondary me-2">Авторы</a>
-<a href="{% url 'collections:list' %}" class="btn btn-secondary">Коллекции</a>
 {% endblock %}
