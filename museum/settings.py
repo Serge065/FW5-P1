@@ -1,6 +1,10 @@
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
 SECRET_KEY = 'django-insecure-30d5)mqgpdx#7v!br^2pc-=fj+_axs5-*7ms_+i$$y7o*9*()i'
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -19,9 +23,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "homepage",
-    "exhibits",
-    "authors",
-    "colections"
+    "exhibits.apps.ExhibitsConfig",
+    "authors.apps.AuthorsConfig",
+    "colections.apps.ColectionsConfig",
 ]
 
 MIDDLEWARE = [
@@ -58,9 +62,13 @@ WSGI_APPLICATION = 'museum.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("POSTGRES_DB", "museum_db"),
+        "USER": os.getenv("POSTGRES_USER", "museum"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "123456789"),
+        "HOST": os.getenv("POSTGRES_HOST", "localhost"),
+        "PORT": os.getenv("POSTGRES_PORT", "6543"),
     }
 }
 

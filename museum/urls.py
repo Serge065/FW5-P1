@@ -10,3 +10,7 @@ urlpatterns = [
 ]
 
 handler404 = "homepage.views.page_not_found"
+
+admin.site.site_header = "Администрирование музейного каталога"
+admin.site.site_title = "Музейный каталог"
+admin.site.index_title = "Управление данными музея"
